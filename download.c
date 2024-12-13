@@ -260,6 +260,7 @@ int main(int argc, char *argv[]) {
     printf("download started\n");
     download_file(newsockfd, url.file);
     printf("download ended\n");
+    close(newsockfd);
     res =read_response(sockfd,response) ;
     if(res!=226){
         printf("transfer not complete :(");
@@ -267,12 +268,12 @@ int main(int argc, char *argv[]) {
     }else{
         printf("transfer complete :)");
     }
-    write(sockfd, "quit\n",5);
+    write(sockfd, "quit\r\n",6);
     if(read_response(sockfd,response) != 221){
         printf("could not close :(\n");
     }
     
-    close(newsockfd);
+
     close(sockfd);
 
 
