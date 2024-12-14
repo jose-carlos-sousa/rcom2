@@ -12,7 +12,7 @@
 #define CODE_USER_OK 331
 #define CODE_QUIT 221
 #define CODE_TRANSFER_COMPLETE 226
-#define CODE_READy_FOR_NEW_USER 220
+#define CODE_READY_FOR_NEW_USER 220
 
 struct FTP_URL {
     char host[LEN];       
@@ -209,7 +209,7 @@ int main(int argc, char *argv[]) {
     char response[LEN];
 
     int sockfd = createTCPClientSocket(url.ip, 21);
-    if (read_response(sockfd, response) != CODE_READy_FOR_NEW_USER) {
+    if (read_response(sockfd, response) != CODE_READY_FOR_NEW_USER) {
         printf("FTP server not ready.\n");
         return -1;
     } else {
