@@ -1,18 +1,17 @@
 #include "download.h"
 
-
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        printf("Input format: %s ftp://[<user>:<password>@]<host>/<url-path>\n", argv[0]);
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Input format: %s ftp://[<user>:<password>@]<host>/<url-path>\n", argv[0]);
+        return -1;
     }
 
     struct FTP_URL url;
     bzero(&url, sizeof(url));
 
-    parse_ftp_url(argv[1], &url);
+    if (parse_ftp_url(argv[1], &url) == -1) return -1;
     extract_file_name(url.resource, url.file);
-    resolve_host_ip(url.host, url.ip);
+    if (resolve_host_ip(url.host, url.ip) == -1) return -1;
 
     printf("Password: %s\n", url.password);
     printf("User: %s\n", url.user);
@@ -24,40 +23,59 @@ int main(int argc, char *argv[]) {
     char response[LEN];
 
     int sockfd = createTCPClientSocket(url.ip, FTP_PORT);
+    if (sockfd == -1) return -1;
+
     if (read_response(sockfd, response) != CODE_READY_FOR_NEW_USER) {
-        printf("FTP server not ready.\n");
+        fprintf(stderr, "FTP server not ready.\n");
+        close(sockfd);
         return -1;
     } else {
         printf("FTP server ready.\n");
     }
 
-    login_to_ftp(sockfd, &url);
+    if (login_to_ftp(sockfd, &url) == -1) {
+        close(sockfd);
+        return -1;
+    }
 
     int newport;
     if (enter_passive_mode(sockfd, &newport) != CODE_PASSIVE_MODE) {
-        printf("Error entering passive mode.\n");
+        fprintf(stderr, "Error entering passive mode.\n");
+        close(sockfd);
         return -1;
     } else {
         printf("Passive mode OK\n");
     }
 
     int newsockfd = createTCPClientSocket(url.ip, newport);
+    if (newsockfd == -1) {
+        close(sockfd);
+        return -1;
+    }
+
     int res = send_retr(sockfd, url.resource);
     if (res != CODE_FILE_STATUS_OK && res != CODE_DATA_CONNECTION_OPEN) {
-        printf("Error retrieving file.\n");
+        fprintf(stderr, "Error retrieving file.\n");
+        close(newsockfd);
+        close(sockfd);
         return -1;
     } else {
         printf("File retrieved.\n");
     }
 
     printf("Download started\n");
-    download_file(newsockfd, url.file);
+    if (download_file(newsockfd, url.file) == -1) {
+        close(newsockfd);
+        close(sockfd);
+        return -1;
+    }
     printf("Download ended\n");
     close(newsockfd);
 
     res = read_response(sockfd, response);
     if (res != CODE_TRANSFER_COMPLETE) {
-        printf("Transfer not complete :(\n");
+        fprintf(stderr, "Transfer not complete :(\n");
+        close(sockfd);
         return -1;
     } else {
         printf("Transfer complete :)\n");
@@ -69,14 +87,16 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void parse_ftp_url(char *url_str, struct FTP_URL *url) {
+int parse_ftp_url(char *url_str, struct FTP_URL *url) {
     if (sscanf(url_str, FTP_URL_WITH_CREDENTIALS, url->user, url->password, url->host, url->resource) == 4) {
+        return 0;
     } else if (sscanf(url_str, FTP_URL_WITHOUT_CREDENTIALS, url->host, url->resource) == 2) {
         strcpy(url->user, "anonymous");
         strcpy(url->password, "");
+        return 0;
     } else {
         fprintf(stderr, "Invalid FTP URL format.\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
 }
 
@@ -89,49 +109,58 @@ void extract_file_name(char *resource, char *file) {
     }
 }
 
-void resolve_host_ip(char *host, char *ip) {
+int resolve_host_ip(char *host, char *ip) {
     struct hostent *h;
     if ((h = gethostbyname(host)) == NULL) {
         herror("gethostbyname");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     strncpy(ip, inet_ntoa(*((struct in_addr *)h->h_addr)), LEN - 1);
     ip[LEN - 1] = '\0';
+    return 0;
 }
 
-void login_to_ftp(int sockfd, struct FTP_URL *url) {
+int login_to_ftp(int sockfd, struct FTP_URL *url) {
     char response[LEN];
 
     char user[LEN];
-    sprintf(user, "USER %s\r\n", url->user);
-    write(sockfd, user, strlen(user));
+    snprintf(user, LEN, "USER %.1007s\r\n", url->user);
+    if (write(sockfd, user, strlen(user)) < 0) {
+        perror("write() failed");
+        return -1;
+    }
     if (read_response(sockfd, response) != CODE_USER_OK) {
-        printf("Invalid user.\n");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Invalid user.\n");
+        return -1;
     } else {
         printf("User OK\n");
     }
 
     char pass[LEN];
-    sprintf(pass, "PASS %s\r\n", url->password);
-    write(sockfd, pass, strlen(pass));
+    snprintf(pass, LEN, "PASS %.1007s\r\n", url->password);
+    if (write(sockfd, pass, strlen(pass)) < 0) {
+        perror("write() failed");
+        return -1;
+    }
     if (read_response(sockfd, response) != CODE_USER_LOGGED_IN) {
-        printf("Invalid password.\n");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Invalid password.\n");
+        return -1;
     } else {
         printf("Password OK\n");
     }
+    return 0;
 }
-
 void quit_ftp(int sockfd) {
     char response[LEN];
-    write(sockfd, "QUIT\r\n", 6);
+    if (write(sockfd, "QUIT\r\n", 6) < 0) {
+        perror("write() failed");
+        return;
+    }
     if (read_response(sockfd, response) != CODE_QUIT) {
-        printf("Could not close :(\n");
+        fprintf(stderr, "Could not close :(\n");
     }
 }
 
-// Function to create a TCP client socket
 int createTCPClientSocket(char *ip, int port) {
     int sockfd;
     struct sockaddr_in server_addr;
@@ -145,19 +174,18 @@ int createTCPClientSocket(char *ip, int port) {
     printf("Connecting to %s:%d\n", ip, port);
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket() failed");
-        exit(-1);
+        return -1;
     }
 
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("connect() failed");
         close(sockfd);
-        exit(-1);
+        return -1;
     }
 
     return sockfd;
 }
 
-// Function to read a response from the FTP server
 int read_response(int sockfd, char *response) {
     printf("Reading response...\n");
     memset(response, 0, LEN);
@@ -188,36 +216,37 @@ int enter_passive_mode(int sockfd, int *port) {
     sprintf(pasv, "PASV\r\n");
     printf("PASV command: %s\n", pasv);
 
-    write(sockfd, pasv, strlen(pasv));
+    if (write(sockfd, pasv, strlen(pasv)) < 0) {
+        perror("write() failed");
+        return -1;
+    }
 
     char response[LEN];
     int responseCode = read_response(sockfd, response);
     printf("Response Code: %d\n", responseCode);
 
     if (responseCode != CODE_PASSIVE_MODE) {
-        printf("Error entering passive mode.\n");
+        fprintf(stderr, "Error entering passive mode.\n");
         return -1;
     }
 
     char *start = strchr(response, '(');
     if (!start) {
-        printf("Error: No '(' found in response.\n");
+        fprintf(stderr, "Error: No '(' found in response.\n");
         return -1;
     }
 
     char *end = strchr(response, ')');
     if (!end) {
-        printf("Error: No ')' found in response.\n");
+        fprintf(stderr, "Error: No ')' found in response.\n");
         return -1;
     }
 
     int p1, p2;
     if (sscanf(start, PASSIVE_MODE_RESPONSE, &p1, &p2) != 2) {
-        printf("Error: Failed to parse the IP and port from the response.\n");
+        fprintf(stderr, "Error: Failed to parse the IP and port from the response.\n");
         return -1;
     }
-
-
 
     *port = NEW_PORT(p1, p2);
     printf("Passive mode port: %d\n", *port);
@@ -230,7 +259,10 @@ int send_retr(int sockfd, char *file) {
     sprintf(retr, "RETR %s\r\n", file);
     printf("RETR command: %s\n", retr);
 
-    write(sockfd, retr, strlen(retr));
+    if (write(sockfd, retr, strlen(retr)) < 0) {
+        perror("write() failed");
+        return -1;
+    }
 
     char response[LEN];
     int responseCode = read_response(sockfd, response);
@@ -250,6 +282,12 @@ int download_file(int sockfd, char *file) {
     ssize_t bytesRead;
     while ((bytesRead = read(sockfd, buffer, 1)) > 0) {
         fwrite(buffer, 1, bytesRead, fp);
+    }
+
+    if (bytesRead < 0) {
+        perror("read() failed");
+        fclose(fp);
+        return -1;
     }
 
     fclose(fp);

@@ -1,9 +1,13 @@
+#ifndef DOWNLOAD_H
+#define DOWNLOAD_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h> 
+
 #define LEN 1024
 #define CODE_FILE_STATUS_OK 150
 #define CODE_DATA_CONNECTION_OPEN 125
@@ -21,17 +25,6 @@
 #define NEW_PORT(p1, p2) ((p1) * 256 + (p2))
 
 
-int createTCPClientSocket(char *ip, int port);
-int read_response(int sockfd, char *response);
-int enter_passive_mode(int sockfd, int *port);
-int send_retr(int sockfd, char *file);
-int download_file(int sockfd, char *file);
-void parse_ftp_url(char *url_str, struct FTP_URL *url);
-void extract_file_name(char *resource, char *file);
-void resolve_host_ip(char *host, char *ip);
-void login_to_ftp(int sockfd, struct FTP_URL *url);
-void quit_ftp(int sockfd);
-
 struct FTP_URL {
     char host[LEN];       
     char resource[LEN];
@@ -40,3 +33,18 @@ struct FTP_URL {
     char password[LEN];   
     char ip[LEN];       
 };
+int main(int argc, char *argv[]);
+int createTCPClientSocket(char *ip, int port);
+int resolve_host_ip(char *host, char *ip);
+int login_to_ftp(int sockfd, struct FTP_URL *url);
+void quit_ftp(int sockfd);
+int enter_passive_mode(int sockfd, int *port);
+int send_retr(int sockfd, char *resource);
+int read_response(int sockfd, char *response);
+int parse_ftp_url(char *url, struct FTP_URL *ftpURL);
+void extract_file_name(char *resource, char *file);
+int download_file(int sockfd, char *file);
+
+
+
+#endif // DOWNLOAD_H
