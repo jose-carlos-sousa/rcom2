@@ -4,64 +4,59 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h> 
-#define LEN 3000
+#define LEN 1024
+#define CODE_FILE_STATUS_OK 150
+#define CODE_DATA_CONNECTION_OPEN 125
+#define CODE_PASSIVE_MODE 227
+#define CODE_USER_LOGGED_IN 230
+#define CODE_USER_OK 331
+#define CODE_QUIT 221
+#define CODE_TRANSFER_COMPLETE 226
+#define CODE_READy_FOR_NEW_USER 220
 
 struct FTP_URL {
-    char host[LEN];       // Hostname
-    char resource[LEN];   // Resource path
-    char file[LEN];       // File name
-    char user[LEN];       // Username
-    char password[LEN];   // Password
-    char ip[LEN];         // Resolved IP address
+    char host[LEN];       
+    char resource[LEN];
+    char file[LEN];      
+    char user[LEN];     
+    char password[LEN];   
+    char ip[LEN];       
 };
-
-
 
 int createTCPClientSocket(char *ip, int port) {
     int sockfd;
     struct sockaddr_in server_addr;
 
-    // Clear structure
     bzero((char *) &server_addr, sizeof(server_addr));
 
-    // Set up address family, IP, and port
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);  // Ensure port is in network byte order
+    server_addr.sin_port = htons(port);
 
-    // Convert IP address
     if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0) {
         perror("inet_pton() failed");
         exit(-1);
     }
 
-    // Create socket
+
     printf("Connecting to %s:%d\n", ip, port);
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket() failed");
         exit(-1);
     }
 
-    // Connect to server
     if (connect(sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
         perror("connect() failed");
-        close(sockfd); // Close the socket before exiting
+        close(sockfd); 
         exit(-1);
     }
 
     return sockfd;
 }
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#define LEN 1024
-#define STATUS_CODE_REGEX "^[0-9]{3}"
 
 int read_response(int sockfd, char *response) {
     printf("Reading response...\n");
 
-    // Initialize response buffer to zero
+
     memset(response, 0, LEN);
 
     // Read up to LEN-1 bytes from the socket into the response buffer
@@ -113,7 +108,7 @@ int enter_passive_mode(int sockfd, int *port) {
     int responseCode = read_response(sockfd, response);
     printf("Response Code: %d\n", responseCode);
 
-    if (responseCode != 227) {
+    if (responseCode != CODE_PASSIVE_MODE) {
         printf("Error entering passive mode.\n");
         return -1;
     }
@@ -214,7 +209,7 @@ int main(int argc, char *argv[]) {
     char response[LEN];
 
     int sockfd = createTCPClientSocket(url.ip, 21);
-    if (read_response(sockfd, response) != 220) {
+    if (read_response(sockfd, response) != CODE_READy_FOR_NEW_USER) {
         printf("FTP server not ready.\n");
         return -1;
     } else {
@@ -225,7 +220,7 @@ int main(int argc, char *argv[]) {
     char user[LEN];
     sprintf(user, "USER %s\r\n", url.user);
     write(sockfd, user, strlen(user));
-    if (read_response(sockfd, response) != 331) {
+    if (read_response(sockfd, response) != CODE_USER_OK) {
         printf("Invalid user.\n");
         return -1; 
     } else {
@@ -234,7 +229,7 @@ int main(int argc, char *argv[]) {
     char pass[LEN];
     sprintf(pass, "PASS %s\r\n", url.password);
     write(sockfd, pass, strlen(pass));
-    if (read_response(sockfd, response) != 230) {
+    if (read_response(sockfd, response) != CODE_USER_LOGGED_IN) {
         printf("Invalid password.\n");
         return -1;
     } else {
@@ -242,7 +237,7 @@ int main(int argc, char *argv[]) {
     }
 
     int newport;
-    if (enter_passive_mode(sockfd, &newport) != 227) {
+    if (enter_passive_mode(sockfd, &newport) != CODE_PASSIVE_MODE) {
         printf("Error entering passive mode.\n");
         return -1;
     } else {
@@ -251,7 +246,7 @@ int main(int argc, char *argv[]) {
 
     int newsockfd = createTCPClientSocket(url.ip, newport);
     int res= send_retr(sockfd, url.resource);
-    if (res!= 150 && res != 125) {
+    if (res!= CODE_FILE_STATUS_OK && res != CODE_DATA_CONNECTION_OPEN) {
         printf("Error retrieving file.\n");
         return -1;
     } else {
@@ -262,14 +257,14 @@ int main(int argc, char *argv[]) {
     printf("download ended\n");
     close(newsockfd);
     res =read_response(sockfd,response) ;
-    if(res!=226){
+    if(res!= CODE_TRANSFER_COMPLETE){
         printf("transfer not complete :(");
         return -1;
     }else{
         printf("transfer complete :)");
     }
     write(sockfd, "quit\r\n",6);
-    if(read_response(sockfd,response) != 221){
+    if(read_response(sockfd,response) != CODE_QUIT){
         printf("could not close :(\n");
     }
     
